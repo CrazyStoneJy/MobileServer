@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.TextView;
 
+import com.koushikdutta.async.http.Multimap;
 import com.koushikdutta.async.http.server.AsyncHttpServer;
 import com.koushikdutta.async.http.server.AsyncHttpServerRequest;
 import com.koushikdutta.async.http.server.AsyncHttpServerResponse;
@@ -21,14 +22,13 @@ import org.json.JSONObject;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 
-import permissions.dispatcher.NeedsPermission;
-import permissions.dispatcher.OnNeverAskAgain;
-import permissions.dispatcher.OnPermissionDenied;
 import permissions.dispatcher.RuntimePermissions;
 
-@RuntimePermissions
 public class MainActivity extends AppCompatActivity {
 
     AsyncHttpServer server;
@@ -56,7 +56,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onRequest(AsyncHttpServerRequest request, AsyncHttpServerResponse response) {
                 Log.d("TAG", "index.html");
-                response.send(getIndexContent());
+                response.send(getIndexContent("index.html"));
             }
         });
         server.get("/test", new HttpServerRequestCallback() {
@@ -68,56 +68,50 @@ public class MainActivity extends AppCompatActivity {
         server.get("/files", new HttpServerRequestCallback() {
             @Override
             public void onRequest(AsyncHttpServerRequest request, AsyncHttpServerResponse response) {
-//                MainActivityPermissionsDispatcher.getFilesWithPermissionCheck(MainActivity.this);
                 response.send(getFileNames());
             }
         });
+        server.get("/file", new HttpServerRequestCallback() {
+            @Override
+            public void onRequest(AsyncHttpServerRequest request, AsyncHttpServerResponse response) {
+                response.send(getIndexContent("files.html"));
+            }
+        });
+        server.get("/files/.*", new HttpServerRequestCallback() {
+            @Override
+            public void onRequest(AsyncHttpServerRequest request, AsyncHttpServerResponse response) {
+                String path = request.getPath().replace("/files/", "");
+                try {
+                    path = URLDecoder.decode(path, "utf-8");
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+                File file = new File(path);
+                if (file.exists() && file.isFile()) {
+                    try {
+                        FileInputStream fis = new FileInputStream(file);
+                        response.sendStream(fis, fis.available());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    return;
+                }
+                response.code(404).send("Not found!");
+            }
+        });
+
+
         server.listen(Config.PORT);
     }
 
-    @NeedsPermission({Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE})
-    public void getFiles() {
+
+    public String getFileNames() {
         JSONArray array = new JSONArray();
         String path = Environment.getExternalStorageDirectory().getPath();
         Log.d("TAG", "path:" + path);
         File storage_file = new File(path);
         if (storage_file.exists()) {
             String[] file_names = storage_file.list();
-            if (file_names != null) {
-                for (String name : file_names) {
-                    File file = new File(storage_file, name);
-                    if (file.getName().endsWith(".mp4") || file.getName().endsWith(".txt") || file.getName().endsWith(".jpg")) {
-                        try {
-                            JSONObject jsonObject = new JSONObject();
-                            jsonObject.put("name", name);
-                            jsonObject.put("path", file.getAbsolutePath());
-                            array.put(jsonObject);
-                        } catch (JSONException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-            }
-        }
-        Log.d("TAG", "TEST");
-        responseString = array.toString();
-        Log.d("TAG", responseString);
-//        return array.toString();
-    }
-
-    public String getFileNames() {
-        JSONArray array = new JSONArray();
-        String path = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getPath();
-        Log.d("TAG", "path:" + path);
-        File storage_file = new File(path);
-        if (storage_file.exists()) {
-            String[] file_names = storage_file.list();
-            File[] files = storage_file.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    Log.d("TAG", file.getName());
-                }
-            }
             if (file_names != null) {
                 for (String name : file_names) {
                     File file = new File(storage_file, name);
@@ -141,10 +135,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private String getIndexContent() {
+    private String getIndexContent(String html_name) {
         BufferedInputStream bInputStream = null;
         try {
-            bInputStream = new BufferedInputStream(getAssets().open("index.html"));
+            bInputStream = new BufferedInputStream(getAssets().open(html_name));
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             int len = 0;
             byte[] tmp = new byte[10240];
@@ -176,20 +170,4 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @OnPermissionDenied({Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE})
-    public void deny() {
-        Log.d("TAG", "deny");
-    }
-
-    @OnNeverAskAgain({Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE})
-    public void ask() {
-        Log.d("TAG", "ask");
-    }
-
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        MainActivityPermissionsDispatcher.onRequestPermissionsResult(this, requestCode, grantResults);
-    }
 }
